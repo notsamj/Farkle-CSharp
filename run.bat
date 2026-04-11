@@ -1,0 +1,2 @@
+cls
+dotnet run
