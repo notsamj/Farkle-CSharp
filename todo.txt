@@ -1,0 +1,8 @@
+Add Player vs CPU
+Add Server CPU vs CPU
+Add Server CPU vs Player
+Add Server Player vs Player
+Clean up
+
+Publish
+Mark as done

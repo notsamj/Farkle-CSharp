@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Text.RegularExpressions;
 using System.Collections; // Using for array-list
+using System.Net.WebSockets;
 
 /*
     Note: using custom rules + the one's listed on Wikipedia modified
@@ -48,6 +49,14 @@ namespace Farkle_CSharp {
 
         static void Main(string[] args) {
             Console.WriteLine("Welcome to Farkle!");
+
+            // Expect 1 arg
+            if (args.Length != 1){
+                throw new Exception("Unexpected argment length: " + args.Length.ToString());
+            }
+
+            string mode = args[0];
+            Console.WriteLine("Selected mode: " + mode);
 
             //runPvPLocal();
             runCpuVCpuLocal();
@@ -520,6 +529,7 @@ namespace Farkle_CSharp {
                 // If roll has no moves
                 if (!isViable(roll)){
                     Console.WriteLine("No viable moves found for roll.");
+                    expectedNewPoints = 0;
                     rollIsLive = false;
                     break;
                 }
@@ -600,6 +610,7 @@ namespace Farkle_CSharp {
                 // If roll has no moves
                 if (!isViable(roll)){
                     Console.WriteLine("No viable moves found for roll.");
+                    expectedNewPoints = 0;
                     rollIsLive = false;
                     break;
                 }
