@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Text.RegularExpressions;
+using System.Collections; // Using for array-list
 
 /*
     Note: using custom rules + the one's listed on Wikipedia modified
@@ -42,10 +43,13 @@ namespace Farkle_CSharp {
     class Program {
         static Random random = new Random();
 
+        static int CPU_ESTIMATED_POINTS_PER_TURN = 500; // used for bots
+        static int CPU_MIN_POINTS_TO_HOLD = 300; // used for bots
+
         static void Main(string[] args) {
             Console.WriteLine("Welcome to Farkle!");
 
-            // runPvPLocal();
+            //runPvPLocal();
             runCpuVCpuLocal();
         }
 
@@ -61,11 +65,11 @@ namespace Farkle_CSharp {
             while (player1Score < scoreForWin && player2Score < scoreForWin){
                 if (player1Turn){
                     Console.WriteLine("Turn: Player 1.\nPoints remaining for Player 1 to win: " + (scoreForWin-player1Score).ToString());
-                    player1Score = makeLocalMove(player1Score);
+                    player1Score = makeLocalCPUMove(player1Score, scoreForWin, (scoreForWin-player2Score));
                     Console.WriteLine("Player 1 ends their turn with " + player1Score.ToString() + "/" + scoreForWin.ToString() + " points to win.");
                 }else{
                     Console.WriteLine("Turn: Player 2.\nPoints remaining for Player 2 to win: " + (scoreForWin-player2Score).ToString());
-                    player2Score = makeLocalMove(player2Score);
+                    player2Score = makeLocalCPUMove(player2Score, scoreForWin, (scoreForWin-player1Score));
                     Console.WriteLine("Player 2 ends their turn with " + player2Score.ToString() + "/" + scoreForWin.ToString() + " points to win.");
                 }
                 
@@ -136,12 +140,20 @@ namespace Farkle_CSharp {
             Console.WriteLine(lineToWrite);
         }
 
-        static bool isViable(int[] roll){
+        static void printBotSelection(int[] selection){
+            string lineToWrite = "Bot has selected:";
+            for (int i = 0; i < selection.Length; i++){
+                lineToWrite += " " + selection[i].ToString();
+            }
+            Console.WriteLine(lineToWrite);
+        }
+
+        static bool isViable(int[] selection){
             int[] counts = {0,0,0,0,0,0};
 
             // Determine counts
-            for (int i = 0; i < roll.Length; i++){
-                counts[roll[i]-1]++;
+            for (int i = 0; i < selection.Length; i++){
+                counts[selection[i]-1]++;
             }
 
             // Check 1s and 5s
@@ -150,7 +162,7 @@ namespace Farkle_CSharp {
             }
 
             // Check for straight
-            if (roll.Length == 6){
+            if (selection.Length == 6){
                 bool straightActive = true;
                 for (int i = 0; i < counts.Length; i++){
                     // If count is > 1 then not a straight
@@ -219,6 +231,11 @@ namespace Farkle_CSharp {
         }
 
         static bool selectionIsAValidMove(int[] selection){
+            // Empty
+            if (selection.Length == 0){
+                return false;
+            }
+
             int[] counts = {0,0,0,0,0,0};
 
             // Determine counts
@@ -264,6 +281,308 @@ namespace Farkle_CSharp {
 
             // No problems found, it's valid
             return true;
+        }
+
+        static ArrayList generateAvailableMoves(int[] roll){
+            // Note: Assumes roll is viable
+
+            /*  
+                I need an algorithm to generate all possible combinations
+                E.g. 
+                ArraySize=3
+                0
+                1
+                2
+                    0,1
+                    0,2
+                    1,2
+
+                ArraySize=4
+                0
+                1
+                2
+                3
+                    0,1
+                    0,2
+                    0,3
+                    1,2
+                    1,3
+                    2,3
+
+                        0,1,2
+                        0,1,3
+                        0,2,3
+                        1,2,3
+            */
+
+            ArrayList availableMoves = new ArrayList();
+
+            // Create counts
+            int[] counts = {0,0,0,0,0,0};
+
+            // Determine counts
+            for (int i = 0; i < roll.Length; i++){
+                counts[roll[i]-1]++;
+            }            
+
+            // Generate options
+            generateAvailableMoves(counts, 0, availableMoves, new ArrayList{0,0,0,0,0,0});
+
+            // Filter out movies with no value
+            ArrayList viableMovesArrayList = new ArrayList();
+            foreach (ArrayList moveCounts in availableMoves){
+                ArrayList move = countsArrayListToSelectionArrayList(moveCounts);
+                int[] selection = arrayListOfNumToArray(move);
+                // Check if selection matches roll
+                if (!selectionMatchesRoll(selection, roll)){
+                    throw new Exception("Failure in CPU move generation");
+                }
+
+                // Check if the selection is a valid move
+                if (!selectionIsAValidMove(selection)){
+                    continue;
+                }
+                // It's viable
+                viableMovesArrayList.Add(move);
+            }
+
+            /*
+            Console.WriteLine("Viable move count: " + viableMovesArrayList.Count.ToString());
+            foreach (ArrayList move in viableMovesArrayList){
+                printArrayListOfNum(move);
+            }*/
+
+            return viableMovesArrayList;
+        }
+
+        static int[] getCPUSelection(int[] roll, int scoreAtTurnStart, int scoreForWin, int expectedNewPoints, int enemyScoreRemainingToWin){
+            int myCurrentScoreBalance = scoreAtTurnStart + expectedNewPoints;
+            int myPointsRemainingForWin = scoreForWin - myCurrentScoreBalance;
+
+            ArrayList availableMoves = generateAvailableMoves(roll);
+
+            // If count is zero -> error because the roll was already checked to be viable
+            if (availableMoves.Count == 0){
+                throw new Exception("Unexpected lack in moves.");
+            }
+
+            int highestPointsPossible = 0;
+            ArrayList highestPointsPossibleMove = null;
+            // Find the highest points possible
+            foreach (ArrayList move in availableMoves){
+                int[] selection = arrayListOfNumToArray(move);
+                int selectionValue = scoreSelection(selection);
+
+                // If value is highest than seen before then update
+                if (selectionValue > highestPointsPossible){
+                    highestPointsPossible = selectionValue;
+                    highestPointsPossibleMove = move;
+                }
+            }
+
+            // If we can win right now -> do so
+            if (highestPointsPossible > myPointsRemainingForWin){
+                return arrayListOfNumToArray(highestPointsPossibleMove);
+            }
+
+            // SO we can't win, is the enemy about to win -> If so, prioritize re-rolls
+            if (enemyScoreRemainingToWin - CPU_ESTIMATED_POINTS_PER_TURN <= 0){
+                // Take the highest scoring move that clears the dice if possible
+                int highestPointsPossibleCLR = 0;
+                ArrayList highestPointsPossibleMoveCLR = null;
+                foreach (ArrayList move in availableMoves){
+                    int[] selection = arrayListOfNumToArray(move);
+                    int selectionValue = scoreSelection(selection);
+
+                    // If value is highest than seen before then update
+                    if (selectionValue > highestPointsPossibleCLR && selection.Length == roll.Length){
+                        highestPointsPossibleCLR = selectionValue;
+                        highestPointsPossibleMoveCLR = move;
+                    }
+                }
+
+                // If found such a move -> use it
+                if (highestPointsPossibleMoveCLR != null){
+                    return arrayListOfNumToArray(highestPointsPossibleMoveCLR);
+                }
+
+                // Take the highest scoring move that uses minimal dice 
+                int highestPointsPossibleMIND = 0;
+                int numDiceUsedMIND = roll.Length;
+                ArrayList highestPointsPossibleMoveMIND = null;
+                foreach (ArrayList move in availableMoves){
+                    int[] selection = arrayListOfNumToArray(move);
+                    int selectionValue = scoreSelection(selection);
+                    int numDiceUsed = selection.Length;
+
+                    // If uses less dice, or the same but more points then prioritize
+                    if (numDiceUsed < numDiceUsedMIND || (numDiceUsed == numDiceUsedMIND && highestPointsPossibleMIND < selectionValue)){
+                        highestPointsPossibleMIND = selectionValue;
+                        numDiceUsedMIND = numDiceUsed; 
+                        highestPointsPossibleMoveMIND = move;
+                    }
+                }
+
+                // If found such a move -> use it
+                if (highestPointsPossibleMoveMIND != null){
+                    return arrayListOfNumToArray(highestPointsPossibleMoveMIND);
+                }
+            }
+
+            // Go with highest points move
+            return arrayListOfNumToArray(highestPointsPossibleMove);
+        }
+
+        static ArrayList copyArrayList(ArrayList arrayList){
+            ArrayList newArrayList = new ArrayList();
+            foreach(var element in arrayList){
+                newArrayList.Add(element);
+            }
+            return newArrayList;
+        }
+
+        static ArrayList countsArrayListToSelectionArrayList(ArrayList arrayList){
+            ArrayList outputList = new ArrayList();
+            int i = 0;
+            foreach(int count in arrayList){
+                for (int j = 0; j < count; j++){
+                    outputList.Add(i+1);
+                }
+                i++;
+            }
+            return outputList;
+        }
+
+        static int[] arrayListOfNumToArray(ArrayList arrayList){
+            int[] numArray = new int[arrayList.Count];
+            int i = 0;
+            foreach(int element in arrayList){
+                numArray[i++] = element;
+            }
+            return numArray;
+        }
+
+        static void printArrayOfNum(int[] array){
+            string outputString = "[";
+            for(int i = 0; i < array.Length; i++){
+                outputString += " " + array[i].ToString();
+            }
+            outputString += " ]";
+            Console.WriteLine(outputString);
+        }
+
+        static void printArrayListOfNum(ArrayList arrayList){
+            string outputString = "[";
+            foreach(int element in arrayList){
+                outputString += " " + element.ToString();
+            }
+            outputString += " ]";
+            Console.WriteLine(outputString);
+        }
+
+        static void generateAvailableMoves(int[] rollCounts, int index, ArrayList availableMoves, ArrayList selectedCounts){
+            // End recursion -> add
+            if (index == rollCounts.Length){
+
+                //Console.WriteLine("NEW Selected counts");
+                //Console.WriteLine(index.ToString());
+                //Console.WriteLine(i.ToString());
+                //printArrayListOfNum(selectedCounts);
+                availableMoves.Add(selectedCounts);
+                return;
+            }
+            int numOfThisFace = rollCounts[index];
+            
+            // Run with 0,1,2,3,4,5,6 (6 is max)
+            for (int i = 0; i < numOfThisFace+1; i++){
+                ArrayList copyOfSelectedCounts = copyArrayList(selectedCounts);
+                copyOfSelectedCounts[index] = i;
+
+                // Recurse
+                generateAvailableMoves(rollCounts, index+1, availableMoves, copyOfSelectedCounts);
+            }
+        }
+
+        static int makeLocalCPUMove(int scoreAtTurnStart, int scoreForWin, int enemyScoreRemainingToWin){
+            // Get initial roll
+            int diceRemaining = 6;
+            int[] roll = rollDice(diceRemaining);
+
+            // TEMP
+            //int[] roll = { 4, 2, 2, 5, 3, 2 };
+
+            printRoll(roll);
+
+            int finalScore = scoreAtTurnStart; // Placeholder
+            int expectedNewPoints = 0;
+            bool rollIsLive = true;
+            while (rollIsLive){
+                // If roll has no moves
+                if (!isViable(roll)){
+                    Console.WriteLine("No viable moves found for roll.");
+                    rollIsLive = false;
+                    break;
+                }
+
+                int[] selection = getCPUSelection(roll, scoreAtTurnStart, scoreForWin, expectedNewPoints, enemyScoreRemainingToWin); 
+                    
+                // Print for user viewing
+                printBotSelection(selection);
+
+                expectedNewPoints += scoreSelection(selection);
+
+                // Update demaining dice
+                diceRemaining = roll.Length - selection.Length;
+                // New roll if zero
+                if (diceRemaining == 0){
+                    diceRemaining = 6;
+                }
+
+                Console.WriteLine("CPU must pick an option:\n'h': " + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " -> " + (scoreAtTurnStart + expectedNewPoints).ToString() + "\n'r': reroll" + " " + diceRemaining.ToString() + " dice " + "(" + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " + ? -> ??) OR (" + scoreAtTurnStart.ToString() + " + 0 -> " + scoreAtTurnStart.ToString() + ")");
+
+                // Read character, check for h / r and determine dice remaining and stuff
+                int userChoice = getCPUContinuationChoice(scoreAtTurnStart, scoreForWin, expectedNewPoints, diceRemaining, enemyScoreRemainingToWin); // 0 -> none, 1 -> hold, 2 -> reroll
+
+                // User chose hold
+                if (userChoice == 1){
+                    rollIsLive = false;
+                    Console.WriteLine("CPU has chosen to hold");
+                }else{
+                    Console.WriteLine("CPU has chosen to reroll");
+                }
+
+                // If re-rolling
+                if (rollIsLive){
+                    // New roll
+                    roll = rollDice(diceRemaining);
+                    printRoll(roll);
+                }
+            }
+
+            // Return the final score
+            finalScore = scoreAtTurnStart + expectedNewPoints;
+            return finalScore;
+        }
+
+        static int getCPUContinuationChoice(int scoreAtTurnStart, int scoreForWin, int expectedNewPoints, int diceRemaining, int enemyScoreRemainingToWin){
+            // If I will win if I hold -> HOLD
+            if (scoreAtTurnStart + expectedNewPoints > scoreForWin){
+                return 1;
+            }
+
+            // If enemy is expected to win next turn and I am not yet going to win - > ROLL
+            if (enemyScoreRemainingToWin < CPU_ESTIMATED_POINTS_PER_TURN){
+                return 0;
+            }
+
+            // Reroll if my expected points are much less than I'd like
+            if (expectedNewPoints < CPU_MIN_POINTS_TO_HOLD){
+                return 0;
+            }
+            // Otherwise, I'm happy -> hold
+            else{
+                return 1;
+            }
         }
 
         static int makeLocalMove(int scoreAtTurnStart){
