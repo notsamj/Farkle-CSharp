@@ -1,7 +1,11 @@
 ﻿using System;
 using System.Text.RegularExpressions;
 using System.Collections; // Using for array-list
-using System.Net.WebSockets;
+
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading.Tasks;
 
 /*
     Note: using custom rules + the one's listed on Wikipedia modified
@@ -47,7 +51,7 @@ namespace Farkle_CSharp {
         static int CPU_ESTIMATED_POINTS_PER_TURN = 500; // used for bots
         static int CPU_MIN_POINTS_TO_HOLD = 300; // used for bots
 
-        static void Main(string[] args) {
+        static async Task Main(string[] args) {
             Console.WriteLine("Welcome to Farkle!");
 
             // Expect 1 arg
@@ -58,11 +62,81 @@ namespace Farkle_CSharp {
             string mode = args[0];
             Console.WriteLine("Selected mode: " + mode);
 
-            //runPvPLocal();
-            runCpuVCpuLocal();
+            // Check which mode
+            if (mode == "server"){
+                await LaunchServer();
+            }else if (mode == "client"){
+                await LaunchClient();
+            }else{
+                Console.WriteLine("Mode: " + mode + " not found!");
+            }
+
+            //RunPvPLocal();
+            //RunCpuVCpuLocal();
         }
 
-        static void runCpuVCpuLocal(){
+        static async Task LaunchClient(){
+            int serverPort = 8080;
+            int bufferSize = 1024;
+
+            IPAddress ipAddress = IPAddress.Parse("127.0.0.1"); // localhost
+
+            // Note: Using tells the program to call .Dispose() at end of the function
+            using TcpClient client = new TcpClient();
+            await client.ConnectAsync(ipAddress, serverPort);
+            await using NetworkStream networkStream = client.GetStream();
+
+            byte[] networkBuffer = new byte[bufferSize];
+            int receivedInt = await networkStream.ReadAsync(networkBuffer);
+
+            string message = Encoding.UTF8.GetString(networkBuffer, 0, receivedInt);
+            Console.WriteLine($"Message received from server: \"{message}\"");
+        }
+
+        static async Task LaunchServer(){
+            int serverPort = 8080;
+            IPEndPoint serverIpEndPoint = new IPEndPoint(IPAddress.Any, serverPort);
+
+            TcpListener tcpListener = new TcpListener(serverIpEndPoint);
+
+            // Try starting up
+            try {
+                Console.WriteLine("Starting up the server!");
+                // Call start
+                tcpListener.Start();
+
+                Console.WriteLine("Server has started!");
+                // Note: Using tells the program to call .Dispose() at end of try{...}
+                using TcpClient tcpClientHandler = await tcpListener.AcceptTcpClientAsync();
+
+
+                Console.WriteLine("A client has connected!");
+                await using NetworkStream networkStream = tcpClientHandler.GetStream();
+                Console.WriteLine("Saaaacc");
+
+                string message = $"Time: {DateTime.Now}";
+                byte[] byteConversionOfMessage = Encoding.UTF8.GetBytes(message);
+
+                // send message to client
+                await networkStream.WriteAsync(byteConversionOfMessage);
+
+                // Print message locally
+                Console.WriteLine($"Sent to client: \" {message} \"");
+            }
+            // Errors
+            catch (Exception exception){
+                Console.WriteLine($"Server error: {exception.Message}");
+            }
+            // Shut down
+            finally {
+                Console.WriteLine("Server shutting down");
+                tcpListener.Stop();
+            }
+
+            Console.WriteLine("End of launch server");
+        }
+
+        static void RunCpuVCpuLocal(){
             const int scoreForWin = 2000;
 
             int player1Score = 0;
@@ -74,11 +148,11 @@ namespace Farkle_CSharp {
             while (player1Score < scoreForWin && player2Score < scoreForWin){
                 if (player1Turn){
                     Console.WriteLine("Turn: Player 1.\nPoints remaining for Player 1 to win: " + (scoreForWin-player1Score).ToString());
-                    player1Score = makeLocalCPUMove(player1Score, scoreForWin, (scoreForWin-player2Score));
+                    player1Score = MakeLocalCPUMove(player1Score, scoreForWin, (scoreForWin-player2Score));
                     Console.WriteLine("Player 1 ends their turn with " + player1Score.ToString() + "/" + scoreForWin.ToString() + " points to win.");
                 }else{
                     Console.WriteLine("Turn: Player 2.\nPoints remaining for Player 2 to win: " + (scoreForWin-player2Score).ToString());
-                    player2Score = makeLocalCPUMove(player2Score, scoreForWin, (scoreForWin-player1Score));
+                    player2Score = MakeLocalCPUMove(player2Score, scoreForWin, (scoreForWin-player1Score));
                     Console.WriteLine("Player 2 ends their turn with " + player2Score.ToString() + "/" + scoreForWin.ToString() + " points to win.");
                 }
                 
@@ -96,7 +170,7 @@ namespace Farkle_CSharp {
             }
         }
 
-        static void runPvPLocal(){
+        static void RunPvPLocal(){
             const int scoreForWin = 2000;
 
             int player1Score = 0;
@@ -108,11 +182,11 @@ namespace Farkle_CSharp {
             while (player1Score < scoreForWin && player2Score < scoreForWin){
                 if (player1Turn){
                     Console.WriteLine("Turn: Player 1.\nPoints remaining for Player 1 to win: " + (scoreForWin-player1Score).ToString());
-                    player1Score = makeLocalMove(player1Score);
+                    player1Score = MakeLocalMove(player1Score);
                     Console.WriteLine("Player 1 ends their turn with " + player1Score.ToString() + "/" + scoreForWin.ToString() + " points to win.");
                 }else{
                     Console.WriteLine("Turn: Player 2.\nPoints remaining for Player 2 to win: " + (scoreForWin-player2Score).ToString());
-                    player2Score = makeLocalMove(player2Score);
+                    player2Score = MakeLocalMove(player2Score);
                     Console.WriteLine("Player 2 ends their turn with " + player2Score.ToString() + "/" + scoreForWin.ToString() + " points to win.");
                 }
                 
@@ -130,7 +204,7 @@ namespace Farkle_CSharp {
             }
         }
 
-        static int[] rollDice(int numDice){
+        static int[] RollDice(int numDice){
             int[] roll = new int[numDice];
 
             // Fill randomly
@@ -141,7 +215,7 @@ namespace Farkle_CSharp {
             return roll;
         }
 
-        static void printRoll(int[] roll){
+        static void PrintRoll(int[] roll){
             string lineToWrite = "Roll:";
             for (int i = 0; i < roll.Length; i++){
                 lineToWrite += " " + roll[i].ToString();
@@ -149,7 +223,7 @@ namespace Farkle_CSharp {
             Console.WriteLine(lineToWrite);
         }
 
-        static void printBotSelection(int[] selection){
+        static void PrintBotSelection(int[] selection){
             string lineToWrite = "Bot has selected:";
             for (int i = 0; i < selection.Length; i++){
                 lineToWrite += " " + selection[i].ToString();
@@ -157,7 +231,7 @@ namespace Farkle_CSharp {
             Console.WriteLine(lineToWrite);
         }
 
-        static bool isViable(int[] selection){
+        static bool IsViable(int[] selection){
             int[] counts = {0,0,0,0,0,0};
 
             // Determine counts
@@ -198,7 +272,7 @@ namespace Farkle_CSharp {
             return false;
         }
 
-        static int[] selectionStringToInt(string userInput){
+        static int[] SelectionStringToInt(string userInput){
             // Note: Assumes correct format
 
             string[] numberStrArray = userInput.Split(' ');
@@ -212,7 +286,7 @@ namespace Farkle_CSharp {
             return selection;
         }
 
-        static bool selectionMatchesRoll(int[] selection, int[] roll){
+        static bool SelectionMatchesRoll(int[] selection, int[] roll){
             int[] rollCounts = {0,0,0,0,0,0};
 
             // Determine rollCounts
@@ -239,7 +313,7 @@ namespace Farkle_CSharp {
             return true;
         }
 
-        static bool selectionIsAValidMove(int[] selection){
+        static bool SelectionIsAValidMove(int[] selection){
             // Empty
             if (selection.Length == 0){
                 return false;
@@ -292,7 +366,7 @@ namespace Farkle_CSharp {
             return true;
         }
 
-        static ArrayList generateAvailableMoves(int[] roll){
+        static ArrayList GenerateAvailableMoves(int[] roll){
             // Note: Assumes roll is viable
 
             /*  
@@ -335,20 +409,20 @@ namespace Farkle_CSharp {
             }            
 
             // Generate options
-            generateAvailableMoves(counts, 0, availableMoves, new ArrayList{0,0,0,0,0,0});
+            GenerateAvailableMoves(counts, 0, availableMoves, new ArrayList{0,0,0,0,0,0});
 
             // Filter out movies with no value
             ArrayList viableMovesArrayList = new ArrayList();
             foreach (ArrayList moveCounts in availableMoves){
-                ArrayList move = countsArrayListToSelectionArrayList(moveCounts);
-                int[] selection = arrayListOfNumToArray(move);
+                ArrayList move = CountsArrayListToSelectionArrayList(moveCounts);
+                int[] selection = ArrayListOfNumToArray(move);
                 // Check if selection matches roll
-                if (!selectionMatchesRoll(selection, roll)){
+                if (!SelectionMatchesRoll(selection, roll)){
                     throw new Exception("Failure in CPU move generation");
                 }
 
                 // Check if the selection is a valid move
-                if (!selectionIsAValidMove(selection)){
+                if (!SelectionIsAValidMove(selection)){
                     continue;
                 }
                 // It's viable
@@ -358,17 +432,17 @@ namespace Farkle_CSharp {
             /*
             Console.WriteLine("Viable move count: " + viableMovesArrayList.Count.ToString());
             foreach (ArrayList move in viableMovesArrayList){
-                printArrayListOfNum(move);
+                PrintArrayListOfNum(move);
             }*/
 
             return viableMovesArrayList;
         }
 
-        static int[] getCPUSelection(int[] roll, int scoreAtTurnStart, int scoreForWin, int expectedNewPoints, int enemyScoreRemainingToWin){
+        static int[] GetCPUSelection(int[] roll, int scoreAtTurnStart, int scoreForWin, int expectedNewPoints, int enemyScoreRemainingToWin){
             int myCurrentScoreBalance = scoreAtTurnStart + expectedNewPoints;
             int myPointsRemainingForWin = scoreForWin - myCurrentScoreBalance;
 
-            ArrayList availableMoves = generateAvailableMoves(roll);
+            ArrayList availableMoves = GenerateAvailableMoves(roll);
 
             // If count is zero -> error because the roll was already checked to be viable
             if (availableMoves.Count == 0){
@@ -379,8 +453,8 @@ namespace Farkle_CSharp {
             ArrayList highestPointsPossibleMove = null;
             // Find the highest points possible
             foreach (ArrayList move in availableMoves){
-                int[] selection = arrayListOfNumToArray(move);
-                int selectionValue = scoreSelection(selection);
+                int[] selection = ArrayListOfNumToArray(move);
+                int selectionValue = ScoreSelection(selection);
 
                 // If value is highest than seen before then update
                 if (selectionValue > highestPointsPossible){
@@ -391,7 +465,7 @@ namespace Farkle_CSharp {
 
             // If we can win right now -> do so
             if (highestPointsPossible > myPointsRemainingForWin){
-                return arrayListOfNumToArray(highestPointsPossibleMove);
+                return ArrayListOfNumToArray(highestPointsPossibleMove);
             }
 
             // SO we can't win, is the enemy about to win -> If so, prioritize re-rolls
@@ -400,8 +474,8 @@ namespace Farkle_CSharp {
                 int highestPointsPossibleCLR = 0;
                 ArrayList highestPointsPossibleMoveCLR = null;
                 foreach (ArrayList move in availableMoves){
-                    int[] selection = arrayListOfNumToArray(move);
-                    int selectionValue = scoreSelection(selection);
+                    int[] selection = ArrayListOfNumToArray(move);
+                    int selectionValue = ScoreSelection(selection);
 
                     // If value is highest than seen before then update
                     if (selectionValue > highestPointsPossibleCLR && selection.Length == roll.Length){
@@ -412,7 +486,7 @@ namespace Farkle_CSharp {
 
                 // If found such a move -> use it
                 if (highestPointsPossibleMoveCLR != null){
-                    return arrayListOfNumToArray(highestPointsPossibleMoveCLR);
+                    return ArrayListOfNumToArray(highestPointsPossibleMoveCLR);
                 }
 
                 // Take the highest scoring move that uses minimal dice 
@@ -420,8 +494,8 @@ namespace Farkle_CSharp {
                 int numDiceUsedMIND = roll.Length;
                 ArrayList highestPointsPossibleMoveMIND = null;
                 foreach (ArrayList move in availableMoves){
-                    int[] selection = arrayListOfNumToArray(move);
-                    int selectionValue = scoreSelection(selection);
+                    int[] selection = ArrayListOfNumToArray(move);
+                    int selectionValue = ScoreSelection(selection);
                     int numDiceUsed = selection.Length;
 
                     // If uses less dice, or the same but more points then prioritize
@@ -434,15 +508,15 @@ namespace Farkle_CSharp {
 
                 // If found such a move -> use it
                 if (highestPointsPossibleMoveMIND != null){
-                    return arrayListOfNumToArray(highestPointsPossibleMoveMIND);
+                    return ArrayListOfNumToArray(highestPointsPossibleMoveMIND);
                 }
             }
 
             // Go with highest points move
-            return arrayListOfNumToArray(highestPointsPossibleMove);
+            return ArrayListOfNumToArray(highestPointsPossibleMove);
         }
 
-        static ArrayList copyArrayList(ArrayList arrayList){
+        static ArrayList CopyArrayList(ArrayList arrayList){
             ArrayList newArrayList = new ArrayList();
             foreach(var element in arrayList){
                 newArrayList.Add(element);
@@ -450,7 +524,7 @@ namespace Farkle_CSharp {
             return newArrayList;
         }
 
-        static ArrayList countsArrayListToSelectionArrayList(ArrayList arrayList){
+        static ArrayList CountsArrayListToSelectionArrayList(ArrayList arrayList){
             ArrayList outputList = new ArrayList();
             int i = 0;
             foreach(int count in arrayList){
@@ -462,7 +536,7 @@ namespace Farkle_CSharp {
             return outputList;
         }
 
-        static int[] arrayListOfNumToArray(ArrayList arrayList){
+        static int[] ArrayListOfNumToArray(ArrayList arrayList){
             int[] numArray = new int[arrayList.Count];
             int i = 0;
             foreach(int element in arrayList){
@@ -471,7 +545,7 @@ namespace Farkle_CSharp {
             return numArray;
         }
 
-        static void printArrayOfNum(int[] array){
+        static void PrintArrayOfNum(int[] array){
             string outputString = "[";
             for(int i = 0; i < array.Length; i++){
                 outputString += " " + array[i].ToString();
@@ -480,7 +554,7 @@ namespace Farkle_CSharp {
             Console.WriteLine(outputString);
         }
 
-        static void printArrayListOfNum(ArrayList arrayList){
+        static void PrintArrayListOfNum(ArrayList arrayList){
             string outputString = "[";
             foreach(int element in arrayList){
                 outputString += " " + element.ToString();
@@ -489,14 +563,14 @@ namespace Farkle_CSharp {
             Console.WriteLine(outputString);
         }
 
-        static void generateAvailableMoves(int[] rollCounts, int index, ArrayList availableMoves, ArrayList selectedCounts){
+        static void GenerateAvailableMoves(int[] rollCounts, int index, ArrayList availableMoves, ArrayList selectedCounts){
             // End recursion -> add
             if (index == rollCounts.Length){
 
                 //Console.WriteLine("NEW Selected counts");
                 //Console.WriteLine(index.ToString());
                 //Console.WriteLine(i.ToString());
-                //printArrayListOfNum(selectedCounts);
+                //PrintArrayListOfNum(selectedCounts);
                 availableMoves.Add(selectedCounts);
                 return;
             }
@@ -504,42 +578,42 @@ namespace Farkle_CSharp {
             
             // Run with 0,1,2,3,4,5,6 (6 is max)
             for (int i = 0; i < numOfThisFace+1; i++){
-                ArrayList copyOfSelectedCounts = copyArrayList(selectedCounts);
+                ArrayList copyOfSelectedCounts = CopyArrayList(selectedCounts);
                 copyOfSelectedCounts[index] = i;
 
                 // Recurse
-                generateAvailableMoves(rollCounts, index+1, availableMoves, copyOfSelectedCounts);
+                GenerateAvailableMoves(rollCounts, index+1, availableMoves, copyOfSelectedCounts);
             }
         }
 
-        static int makeLocalCPUMove(int scoreAtTurnStart, int scoreForWin, int enemyScoreRemainingToWin){
+        static int MakeLocalCPUMove(int scoreAtTurnStart, int scoreForWin, int enemyScoreRemainingToWin){
             // Get initial roll
             int diceRemaining = 6;
-            int[] roll = rollDice(diceRemaining);
+            int[] roll = RollDice(diceRemaining);
 
             // TEMP
             //int[] roll = { 4, 2, 2, 5, 3, 2 };
 
-            printRoll(roll);
+            PrintRoll(roll);
 
             int finalScore = scoreAtTurnStart; // Placeholder
             int expectedNewPoints = 0;
             bool rollIsLive = true;
             while (rollIsLive){
                 // If roll has no moves
-                if (!isViable(roll)){
+                if (!IsViable(roll)){
                     Console.WriteLine("No viable moves found for roll.");
                     expectedNewPoints = 0;
                     rollIsLive = false;
                     break;
                 }
 
-                int[] selection = getCPUSelection(roll, scoreAtTurnStart, scoreForWin, expectedNewPoints, enemyScoreRemainingToWin); 
+                int[] selection = GetCPUSelection(roll, scoreAtTurnStart, scoreForWin, expectedNewPoints, enemyScoreRemainingToWin); 
                     
                 // Print for user viewing
-                printBotSelection(selection);
+                PrintBotSelection(selection);
 
-                expectedNewPoints += scoreSelection(selection);
+                expectedNewPoints += ScoreSelection(selection);
 
                 // Update demaining dice
                 diceRemaining = roll.Length - selection.Length;
@@ -551,7 +625,7 @@ namespace Farkle_CSharp {
                 Console.WriteLine("CPU must pick an option:\n'h': " + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " -> " + (scoreAtTurnStart + expectedNewPoints).ToString() + "\n'r': reroll" + " " + diceRemaining.ToString() + " dice " + "(" + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " + ? -> ??) OR (" + scoreAtTurnStart.ToString() + " + 0 -> " + scoreAtTurnStart.ToString() + ")");
 
                 // Read character, check for h / r and determine dice remaining and stuff
-                int userChoice = getCPUContinuationChoice(scoreAtTurnStart, scoreForWin, expectedNewPoints, diceRemaining, enemyScoreRemainingToWin); // 0 -> none, 1 -> hold, 2 -> reroll
+                int userChoice = GetCPUContinuationChoice(scoreAtTurnStart, scoreForWin, expectedNewPoints, diceRemaining, enemyScoreRemainingToWin); // 0 -> none, 1 -> hold, 2 -> reroll
 
                 // User chose hold
                 if (userChoice == 1){
@@ -564,8 +638,8 @@ namespace Farkle_CSharp {
                 // If re-rolling
                 if (rollIsLive){
                     // New roll
-                    roll = rollDice(diceRemaining);
-                    printRoll(roll);
+                    roll = RollDice(diceRemaining);
+                    PrintRoll(roll);
                 }
             }
 
@@ -574,7 +648,7 @@ namespace Farkle_CSharp {
             return finalScore;
         }
 
-        static int getCPUContinuationChoice(int scoreAtTurnStart, int scoreForWin, int expectedNewPoints, int diceRemaining, int enemyScoreRemainingToWin){
+        static int GetCPUContinuationChoice(int scoreAtTurnStart, int scoreForWin, int expectedNewPoints, int diceRemaining, int enemyScoreRemainingToWin){
             // If I will win if I hold -> HOLD
             if (scoreAtTurnStart + expectedNewPoints > scoreForWin){
                 return 1;
@@ -595,20 +669,20 @@ namespace Farkle_CSharp {
             }
         }
 
-        static int makeLocalMove(int scoreAtTurnStart){
+        static int MakeLocalMove(int scoreAtTurnStart){
             string selectionFormat = @"^[1-6]( [1-6]){0,5}$";
 
             // Get initial roll
             int diceRemaining = 6;
-            int[] roll = rollDice(diceRemaining);
-            printRoll(roll);
+            int[] roll = RollDice(diceRemaining);
+            PrintRoll(roll);
 
             int finalScore = scoreAtTurnStart; // Placeholder
             int expectedNewPoints = 0;
             bool rollIsLive = true;
             while (rollIsLive){
                 // If roll has no moves
-                if (!isViable(roll)){
+                if (!IsViable(roll)){
                     Console.WriteLine("No viable moves found for roll.");
                     expectedNewPoints = 0;
                     rollIsLive = false;
@@ -631,16 +705,16 @@ namespace Farkle_CSharp {
                     }
 
                     // Move input into selection
-                    selection = selectionStringToInt(userInput);
+                    selection = SelectionStringToInt(userInput);
 
                     // Check if selection matches roll
-                    if (!selectionMatchesRoll(selection, roll)){
+                    if (!SelectionMatchesRoll(selection, roll)){
                         Console.WriteLine("Selection does not match dice provided. Please try again.");
                         continue;
                     }
 
                     // Check if the selection is a valid move
-                    if (!selectionIsAValidMove(selection)){
+                    if (!SelectionIsAValidMove(selection)){
                         Console.WriteLine("Selection is not a valid move. Please try again.");
                         continue;
                     }
@@ -648,7 +722,7 @@ namespace Farkle_CSharp {
                     selectionIsMade = true;
                 }
 
-                expectedNewPoints += scoreSelection(selection);
+                expectedNewPoints += ScoreSelection(selection);
 
                 // Update demaining dice
                 diceRemaining = roll.Length - selection.Length;
@@ -662,7 +736,7 @@ namespace Farkle_CSharp {
                 while (userChoice == 0){
                     Console.WriteLine("Please pick an option:\n'h': " + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " -> " + (scoreAtTurnStart + expectedNewPoints).ToString() + "\n'r': reroll" + " " + diceRemaining.ToString() + " dice " + "(" + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " + ? -> ??) OR (" + scoreAtTurnStart.ToString() + " + 0 -> " + scoreAtTurnStart.ToString() + ")");
                     string userInput = Console.ReadLine();
-                    userChoice = attemptToDetermineUserChoice(userInput);
+                    userChoice = AttemptToDetermineUserChoice(userInput);
 
                     // If invalid choise
                     if (userChoice == 0){
@@ -678,8 +752,8 @@ namespace Farkle_CSharp {
                 // If re-rolling
                 if (rollIsLive){
                     // New roll
-                    roll = rollDice(diceRemaining);
-                    printRoll(roll);
+                    roll = RollDice(diceRemaining);
+                    PrintRoll(roll);
                 }
             }
 
@@ -688,7 +762,7 @@ namespace Farkle_CSharp {
             return finalScore;
         }
 
-        static int attemptToDetermineUserChoice(string userInput){
+        static int AttemptToDetermineUserChoice(string userInput){
             if (userInput == "h"){
                 return 1;
             }else if (userInput == "r"){
@@ -698,7 +772,7 @@ namespace Farkle_CSharp {
             }
         }
 
-        static int scoreSelection(int[] selection){
+        static int ScoreSelection(int[] selection){
             // Note: Assumes selection is valid
 
             int score = 0;
