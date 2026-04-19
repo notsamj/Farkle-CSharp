@@ -1,4 +1,6 @@
-﻿using System;
+﻿#nullable disable
+
+using System;
 using System.Text.RegularExpressions;
 using System.Collections; // Using for array-list
 
@@ -77,20 +79,84 @@ namespace Farkle_CSharp {
 
         static async Task LaunchClient(){
             int serverPort = 8080;
-            int bufferSize = 1024;
 
             IPAddress ipAddress = IPAddress.Parse("127.0.0.1"); // localhost
 
             // Note: Using tells the program to call .Dispose() at end of the function
             using TcpClient client = new TcpClient();
-            await client.ConnectAsync(ipAddress, serverPort);
-            await using NetworkStream networkStream = client.GetStream();
 
+            // Do server connection here
+            try {
+                await client.ConnectAsync(ipAddress, serverPort);
+                await using NetworkStream networkStream = client.GetStream();
+
+                Console.WriteLine("Client connected to server!");
+
+                bool connectionActive = true;
+
+                while (connectionActive){
+                    string messageFromServer = await ReceiveMessageFromNetworkStream(networkStream);
+
+                    // If connection failed
+                    if (messageFromServer == null){
+                        Console.WriteLine("Connection to server ended unexpectedly!");
+                        connectionActive = false;
+                        continue;
+                    }
+
+                    // Expect format: (io)|(o),message. Where message has no commas
+                    string[] responseSplit = messageFromServer.Split(',');
+                    if (responseSplit.Length != 2 || (responseSplit[0] != "io" && responseSplit[0] != "o")){
+                        Console.WriteLine("Invalid format message received from server: \"" + messageFromServer + "\"");
+                        connectionActive = false;
+                        continue;
+                    }
+
+        
+                    string messageType = responseSplit[0];
+                    
+                    // Server is asking for a response
+                    if (messageType == "io"){
+                        Console.Write(responseSplit[1]);
+                        string userInput = Console.ReadLine().Trim();
+                        await SendMessageOverNetworkStream(networkStream, userInput);
+                    }else{ // o
+                        Console.WriteLine(responseSplit[1]);
+                    }
+                } 
+
+
+            }catch (Exception exception){
+                Console.WriteLine($"Client error: {exception.Message}");
+            }
+
+            Console.WriteLine("Disconnected. Program closing!");
+        }
+
+        static async Task SendMessageOverNetworkStream(NetworkStream networkStream, string message){
+            byte[] networkBuffer = Encoding.UTF8.GetBytes(message + "\n"); // \n ends the message
+            await networkStream.WriteAsync(networkBuffer, 0, networkBuffer.Length);
+        }
+
+        static async Task<string> ReceiveMessageFromNetworkStream(NetworkStream networkStream){
+            int bufferSize = 1024;
             byte[] networkBuffer = new byte[bufferSize];
-            int receivedInt = await networkStream.ReadAsync(networkBuffer);
+            int messageLength = await networkStream.ReadAsync(networkBuffer);
 
-            string message = Encoding.UTF8.GetString(networkBuffer, 0, receivedInt);
-            Console.WriteLine($"Message received from server: \"{message}\"");
+            // Failed to get a message
+            if (messageLength == 0){
+                return null;
+            }
+
+            // Return message received
+            string messageFromNS = Encoding.UTF8.GetString(networkBuffer, 0, messageLength);
+            string[] msgSplit = messageFromNS.Split('\n');
+            
+            // If it is long
+            if (msgSplit.Length >= 1){
+                return msgSplit[0]; // Handle 1 at a time    
+            }
+            return messageFromNS.Trim();
         }
 
         static async Task LaunchServer(){
@@ -106,22 +172,24 @@ namespace Farkle_CSharp {
                 tcpListener.Start();
 
                 Console.WriteLine("Server has started!");
+
                 // Note: Using tells the program to call .Dispose() at end of try{...}
-                using TcpClient tcpClientHandler = await tcpListener.AcceptTcpClientAsync();
+                using TcpClient tcpClientHandler1 = await tcpListener.AcceptTcpClientAsync();
 
+                Console.WriteLine("Client 1 has connected!");
+                await using NetworkStream client1NS = tcpClientHandler1.GetStream();
 
-                Console.WriteLine("A client has connected!");
-                await using NetworkStream networkStream = tcpClientHandler.GetStream();
-                Console.WriteLine("Saaaacc");
+                // Note: Using tells the program to call .Dispose() at end of try{...}
+                using TcpClient tcpClientHandler2 = await tcpListener.AcceptTcpClientAsync();
 
-                string message = $"Time: {DateTime.Now}";
-                byte[] byteConversionOfMessage = Encoding.UTF8.GetBytes(message);
+                Console.WriteLine("Client 2 has connected!");
+                await using NetworkStream client2NS = tcpClientHandler2.GetStream();
 
-                // send message to client
-                await networkStream.WriteAsync(byteConversionOfMessage);
+                // Run the game
+                await RunPvPOnline(client1NS, client2NS);
 
                 // Print message locally
-                Console.WriteLine($"Sent to client: \" {message} \"");
+                //Console.WriteLine($"Sent to client: \" {message} \"");
             }
             // Errors
             catch (Exception exception){
@@ -147,11 +215,11 @@ namespace Farkle_CSharp {
             // Loop while no player 
             while (player1Score < scoreForWin && player2Score < scoreForWin){
                 if (player1Turn){
-                    Console.WriteLine("Turn: Player 1.\nPoints remaining for Player 1 to win: " + (scoreForWin-player1Score).ToString());
+                    Console.WriteLine("Turn: Player 1. Points remaining for Player 1 to win: " + (scoreForWin-player1Score).ToString());
                     player1Score = MakeLocalCPUMove(player1Score, scoreForWin, (scoreForWin-player2Score));
                     Console.WriteLine("Player 1 ends their turn with " + player1Score.ToString() + "/" + scoreForWin.ToString() + " points to win.");
                 }else{
-                    Console.WriteLine("Turn: Player 2.\nPoints remaining for Player 2 to win: " + (scoreForWin-player2Score).ToString());
+                    Console.WriteLine("Turn: Player 2. Points remaining for Player 2 to win: " + (scoreForWin-player2Score).ToString());
                     player2Score = MakeLocalCPUMove(player2Score, scoreForWin, (scoreForWin-player1Score));
                     Console.WriteLine("Player 2 ends their turn with " + player2Score.ToString() + "/" + scoreForWin.ToString() + " points to win.");
                 }
@@ -167,6 +235,180 @@ namespace Farkle_CSharp {
             }else{
                 Console.WriteLine("Player 2 has won with " + player2Score.ToString() + " points.");
                 Console.WriteLine("Player 1 has lost with "+ player1Score.ToString() + " points.");
+            }
+        }
+
+        static async Task ServerSendAll(NetworkStream client1NS, NetworkStream client2NS, string message){
+            Console.WriteLine(message);
+            await SendMessageOverNetworkStream(client1NS, "o,"+message);
+            await SendMessageOverNetworkStream(client2NS, "o,"+message);
+        }
+
+        static async Task ServerSendRemaining(NetworkStream clientNS, string message){
+            Console.WriteLine(message);
+            await SendMessageOverNetworkStream(clientNS, "o,"+message);
+        }
+
+        static async Task<string> ServerSendIO(NetworkStream clientNS, string message){
+            // Send request
+            await SendMessageOverNetworkStream(clientNS, "io,"+message);
+            // Await IO
+            return await ReceiveMessageFromNetworkStream(clientNS);
+        }
+
+        static async Task<int> MakeOnlineMove(NetworkStream movingClient, NetworkStream otherClient, int scoreAtTurnStart){
+            string selectionFormat = @"^[1-6]( [1-6]){0,5}$";
+
+            // Get initial roll
+            int diceRemaining = 6;
+            int[] roll = RollDice(diceRemaining);
+            await ServerSendAll(movingClient, otherClient, GetRollString(roll));
+
+            int finalScore = scoreAtTurnStart; // Placeholder
+            int expectedNewPoints = 0;
+            bool rollIsLive = true;
+            while (rollIsLive){
+                // If roll has no moves
+                if (!IsViable(roll)){
+                     await ServerSendAll(movingClient, otherClient, "No viable moves found for roll.");
+                    expectedNewPoints = 0;
+                    rollIsLive = false;
+                    break;
+                }
+
+                bool selectionIsMade = false;
+                int[] selection = null; // Placeholder
+
+                // Get the selection from the user
+                while (!selectionIsMade){
+                    await ServerSendAll(movingClient, otherClient, "Make your selection: ");
+                    string userInput = await ServerSendIO(movingClient, "> ");
+
+                    // Error -> return -1
+                    if (userInput == null){
+                        return -1;
+                    }
+
+                    bool validSelectionStr = Regex.IsMatch(userInput, selectionFormat);
+                    // If not correct
+                    if (!validSelectionStr){
+                        await ServerSendRemaining(movingClient, "Invalid selection. Selection example: 1 1 5 4 4 4");
+                        continue;
+                    }
+
+                    // Move input into selection
+                    selection = SelectionStringToInt(userInput);
+
+                    // Check if selection matches roll
+                    if (!SelectionMatchesRoll(selection, roll)){
+                        await ServerSendRemaining(movingClient, "Selection does not match dice provided. Please try again.");
+                        continue;
+                    }
+
+                    // Check if the selection is a valid move
+                    if (!SelectionIsAValidMove(selection)){
+                        await ServerSendRemaining(movingClient, "Selection is not a valid move. Please try again.");
+                        continue;
+                    }
+
+                    selectionIsMade = true;
+
+                    // Send other client the selection
+                    await ServerSendRemaining(otherClient, userInput);
+                }
+
+
+                expectedNewPoints += ScoreSelection(selection);
+
+                // Update demaining dice
+                diceRemaining = roll.Length - selection.Length;
+                // New roll if zero
+                if (diceRemaining == 0){
+                    diceRemaining = 6;
+                }
+
+                // Read character, check for h / r and determine dice remaining and stuff
+                int userChoice = 0; // 0 -> none, 1 -> hold, 2 -> reroll
+                while (userChoice == 0){
+                    await ServerSendAll(movingClient, otherClient, "Please pick an option: 'h': " + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " -> " + (scoreAtTurnStart + expectedNewPoints).ToString() + " 'r': reroll" + " " + diceRemaining.ToString() + " dice " + "(" + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " + ? -> ??) OR (" + scoreAtTurnStart.ToString() + " + 0 -> " + scoreAtTurnStart.ToString() + ")");
+                    string userInput = await ServerSendIO(movingClient, "> ");
+
+                    // Error -> return -1
+                    if (userInput == null){
+                        return -1;
+                    }
+
+                    userChoice = AttemptToDetermineUserChoice(userInput);
+
+                    // If invalid choise
+                    if (userChoice == 0){
+                        await ServerSendRemaining(movingClient, "\"" + userInput + "\" is an invalid choice!");
+                    }
+                }
+
+                // User chose hold
+                if (userChoice == 1){
+                    rollIsLive = false;
+                }
+
+                // If re-rolling
+                if (rollIsLive){
+                    // New roll
+                    roll = RollDice(diceRemaining);
+                    await ServerSendAll(movingClient, otherClient, GetRollString(roll));
+                }
+            }
+
+            // Return the final score
+            finalScore = scoreAtTurnStart + expectedNewPoints;
+            return finalScore;
+        }
+
+        static async Task RunPvPOnline(NetworkStream client1NS, NetworkStream client2NS){
+            const int scoreForWin = 2000;
+
+            int player1Score = 0;
+            int player2Score = 0;
+
+            bool player1Turn = true;
+
+            // Loop while no player 
+            while (player1Score < scoreForWin && player2Score < scoreForWin){
+                if (player1Turn){
+                    await ServerSendAll(client1NS, client2NS, "Turn: Player 1. Points remaining for Player 1 to win: " + (scoreForWin-player1Score).ToString());
+                    player1Score = await MakeOnlineMove(client1NS, client2NS, player1Score);
+
+                    // Score is -1, error occured
+                    if (player1Score == -1){
+                        await ServerSendRemaining(client2NS, "Player 1 has disconnected. Game over.");
+                        break;
+                    }
+
+                    await ServerSendAll(client1NS, client2NS, "Player 1 ends their turn with " + player1Score.ToString() + "/" + scoreForWin.ToString() + " points to win.");
+                }else{
+                    await ServerSendAll(client1NS, client2NS, "Turn: Player 2. Points remaining for Player 2 to win: " + (scoreForWin-player2Score).ToString());
+                    player2Score = await MakeOnlineMove(client2NS, client1NS, player2Score);
+
+                    // Score is -1, error occured
+                    if (player1Score == -1){
+                        await ServerSendRemaining(client1NS, "Player 2 has disconnected. Game over.");
+                        break;
+                    }
+
+                    await ServerSendAll(client1NS, client2NS, "Player 2 ends their turn with " + player2Score.ToString() + "/" + scoreForWin.ToString() + " points to win.");
+                }
+                
+                // Swap turn
+                player1Turn = !player1Turn;
+            }
+
+            // Determine winner
+            if (player1Score >= scoreForWin){
+                await ServerSendAll(client1NS, client2NS, "Player 1 has won with " + player1Score.ToString() + " points.");
+                await ServerSendAll(client1NS, client2NS, "Player 2 has lost with "+ player2Score.ToString() + " points.");
+            }else{
+                await ServerSendAll(client1NS, client2NS, "Player 2 has won with " + player2Score.ToString() + " points.");
+                await ServerSendAll(client1NS, client2NS, "Player 1 has lost with "+ player1Score.ToString() + " points.");
             }
         }
 
@@ -216,11 +458,15 @@ namespace Farkle_CSharp {
         }
 
         static void PrintRoll(int[] roll){
+            Console.WriteLine(GetRollString(roll));
+        }
+
+        static string GetRollString(int[] roll){
             string lineToWrite = "Roll:";
             for (int i = 0; i < roll.Length; i++){
                 lineToWrite += " " + roll[i].ToString();
             }
-            Console.WriteLine(lineToWrite);
+            return lineToWrite;
         }
 
         static void PrintBotSelection(int[] selection){
