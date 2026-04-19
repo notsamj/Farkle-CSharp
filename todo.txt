@@ -1,8 +1,6 @@
-Add Player vs CPU
-Add Server CPU vs CPU
-Add Server CPU vs Player
-Add Server Player vs Player
-Clean up
+"Code a terminal based farkle game in c# that runs with 2 clients over a server or 2 CPU, or 1 player 1 cpu."
+
+README with pictures of execution
 
 Publish
-Mark as done
+Mark as done in notes
