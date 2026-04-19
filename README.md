@@ -79,7 +79,9 @@ One can find guides online.
 2. Type "cc" then press Enter
 4. Look at the game events provided
 5. When the game ends, the program will close. To play again, only the client needs to be restarted.
-
+### A PvP Game
 ![A PvP Game](https://github.com/notsamj/Farkle-CSharp/blob/main/Runtime%20Screenshots/pvp.png?raw=true)
+### A Player vs CPU Game
 ![A Player vs CPU Game](https://github.com/notsamj/Farkle-CSharp/blob/main/Runtime%20Screenshots/pvc.png?raw=true)
-![A CPUvsCPU Game](https://github.com/notsamj/Farkle-CSharp/blob/main/Runtime%20Screenshots/cvc.png?raw=true)
+### A CPU vs CPU Gam
+![A CPU vs CPU Game](https://github.com/notsamj/Farkle-CSharp/blob/main/Runtime%20Screenshots/cvc.png?raw=true)
