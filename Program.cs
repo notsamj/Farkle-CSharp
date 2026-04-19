@@ -44,7 +44,6 @@ using System.Threading.Tasks;
 
     112233 = Nothing
     123456 = 1800
-
 */
 namespace Farkle_CSharp {
 
@@ -503,7 +502,8 @@ namespace Farkle_CSharp {
         */
         static async Task ServerSendClose(NetworkStream client1NS, NetworkStream client2NS, string message){
             await ServerSendClose(client1NS, message);
-            await ServerSendClose(client2NS, message);
+            // Only print once to server
+            await SendMessageOverNetworkStream(client2NS, "c,"+message);
         }
 
         /*
@@ -560,7 +560,6 @@ namespace Farkle_CSharp {
 
                 // Get the selection from the user
                 while (!selectionIsMade){
-                    await ServerSendClientNoPrint(otherClient, "Other client is selecting: ");
                     string userInput = await ServerSendIO(movingClient, "Make your selection: ");
 
                     // Error -> return -1
@@ -592,8 +591,7 @@ namespace Farkle_CSharp {
 
                     selectionIsMade = true;
 
-                    // Send other client the selection
-                    await ServerSendClient(otherClient, userInput);
+                    await ServerSendClient(otherClient, "Other client has selected: " + userInput);
                 }
 
 
@@ -609,6 +607,7 @@ namespace Farkle_CSharp {
                 // Read character, check for h / r and determine dice remaining and stuff
                 int userChoice = 0; // 0 -> none, 1 -> hold, 2 -> reroll
                 while (userChoice == 0){
+                    Console.WriteLine("Moving player must pick an option: 'h': " + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " -> " + (scoreAtTurnStart + expectedNewPoints).ToString() + " 'r': reroll" + " " + diceRemaining.ToString() + " dice " + "(" + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " + ? -> ??) OR (" + scoreAtTurnStart.ToString() + " + 0 -> " + scoreAtTurnStart.ToString() + ")");
                     await ServerSendClientNoPrint(otherClient, "Other client must pick an option: 'h': " + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " -> " + (scoreAtTurnStart + expectedNewPoints).ToString() + " 'r': reroll" + " " + diceRemaining.ToString() + " dice " + "(" + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " + ? -> ??) OR (" + scoreAtTurnStart.ToString() + " + 0 -> " + scoreAtTurnStart.ToString() + ")");
                     string userInput = await ServerSendIO(movingClient, "Please pick an option: 'h': " + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " -> " + (scoreAtTurnStart + expectedNewPoints).ToString() + " 'r': reroll" + " " + diceRemaining.ToString() + " dice " + "(" + scoreAtTurnStart.ToString() + " + " + expectedNewPoints.ToString() + " + ? -> ??) OR (" + scoreAtTurnStart.ToString() + " + 0 -> " + scoreAtTurnStart.ToString() + ")");
 
@@ -621,13 +620,21 @@ namespace Farkle_CSharp {
 
                     // If invalid choise
                     if (userChoice == 0){
-                        await ServerSendClient(movingClient, "\"" + userInput + "\" is an invalid choice!");
+                        await ServerSendClient(movingClient, "\"" + userInput + "\" is an invalid choice! 'h' for hold, 'r' for reroll!");
                     }
+
                 }
 
                 // User chose hold
                 if (userChoice == 1){
+                    Console.WriteLine("Moving player has chosen to hold!");
+                    await ServerSendClientNoPrint(otherClient, "Other client has chosen to hold!");
                     rollIsLive = false;
+                }
+                // Reroll
+                else{
+                    Console.WriteLine("Moving player has chosen to reroll!");
+                    await ServerSendClientNoPrint(otherClient, "Other client has chosen to reroll!");
                 }
 
                 // If re-rolling
@@ -734,7 +741,7 @@ namespace Farkle_CSharp {
 
                     // If invalid choise
                     if (userChoice == 0){
-                        await ServerSendClient(movingClient, "\"" + userInput + "\" is an invalid choice!");
+                        await ServerSendClient(movingClient, "\"" + userInput + "\" is an invalid choice! 'h' for hold, 'r' for reroll!");
                     }
                 }
 
@@ -1014,8 +1021,8 @@ namespace Farkle_CSharp {
             int[] counts = {0,0,0,0,0,0};
 
             // Determine counts
-            for (int i = 0; i < selection.Length; i++){
-                counts[selection[i]-1]++;
+            for (int i = 0; i < roll.Length; i++){
+                counts[roll[i]-1]++;
             }
 
             // Check 1s and 5s
@@ -1024,7 +1031,7 @@ namespace Farkle_CSharp {
             }
 
             // Check for straight
-            if (selection.Length == 6){
+            if (roll.Length == 6){
                 bool straightActive = true;
                 for (int i = 0; i < counts.Length; i++){
                     // If count is > 1 then not a straight
@@ -1714,7 +1721,7 @@ namespace Farkle_CSharp {
 
                     // If invalid choise
                     if (userChoice == 0){
-                        Console.WriteLine("\"" + userInput + "\" is an invalid choice!");
+                        Console.WriteLine("\"" + userInput + "\" is an invalid choice! 'h' for hold, 'r' for reroll!");
                     }
                 }
 
